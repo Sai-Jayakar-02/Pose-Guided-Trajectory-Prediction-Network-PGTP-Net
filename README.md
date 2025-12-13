@@ -1,2 +1,11 @@
-# Pose-Guided-Trajectory-Prediction-Network-PGTP-Net-
-Real time prediction of human pose and trajectory via 3d/2d human pose 
+<div align="center">
+
+# PGTP-Net: Pose-Guided-Trajectory-Prediction-Network
+
+<div align="center">
+
+<br>
+**Sai Jayakar Vanam, Rithvik Shivva, Umar Hassan Makki Mohammad, Priyanka Lakariya**
+
+
+<br>
