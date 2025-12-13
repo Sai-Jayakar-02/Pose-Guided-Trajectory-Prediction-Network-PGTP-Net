@@ -1,0 +1,47 @@
+# PGTP-Net Requirements
+# Python 3.8+
+
+# Core ML
+torch>=2.0.0
+torchvision>=0.15.0
+numpy>=1.24.0
+scipy>=1.10.0
+
+# Pose Estimation
+mmcv>=2.0.0
+mmpose>=1.0.0
+mmdet>=3.0.0
+
+# SMPL
+smplx>=0.1.28
+chumpy>=0.70
+
+# Data Processing
+pandas>=2.0.0
+h5py>=3.8.0
+opencv-python>=4.8.0
+
+# Visualization
+matplotlib>=3.7.0
+seaborn>=0.12.0
+tqdm>=4.65.0
+
+# Configuration
+pyyaml>=6.0
+omegaconf>=2.3.0
+
+# Logging
+tensorboard>=2.13.0
+wandb>=0.15.0
+
+# Jupyter
+jupyter>=1.0.0
+ipykernel>=6.0.0
+
+# Testing
+pytest>=7.3.0
+pytest-cov>=4.0.0
+
+# Utilities
+einops>=0.6.0
+timm>=0.9.0
