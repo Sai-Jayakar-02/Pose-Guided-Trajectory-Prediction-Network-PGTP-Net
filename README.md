@@ -50,7 +50,7 @@ Download the dataset from [here](https://aimagelab.ing.unimore.it/imagelab/page.
 
 2. Extract the JTA data: Extract annotations from JSON files
    ```
-   python scripts/preprocess_jta.py --input_dir data/raw/jta --output_dir data/processed/jta --obs_len 8 --pred_len 12
+   python src/data/preprocess_jta.py --input_dir data/raw/jta --output_dir data/processed/jta --obs_len 8 --pred_len 12
    ```
 ## ETH/UCY Dataset
 The ETH/UCY dataset is a real-world pedestrian trajectory benchmark consisting of 5 scenes.
@@ -60,7 +60,7 @@ Please download the raw data [here](https://github.com/StanfordASL/Trajectron-pl
    
 3. Preprocessing the data: We convert the pixel coordinates to world coordinates
    ```
-   python scripts/preprocess_eth_ucy.py --input_dir data/raw/eth_ucy --output_dir data/processed/eth_ucy --obs_len 8 --pred_len 12
+   python src/data/preprocess_eth_ucy.py --input_dir data/raw/eth_ucy --output_dir data/processed/eth_ucy --obs_len 8 --pred_len 12
    ```
 ## Human3.6M (3D pose estimation)
 Used to validate our 3D pose estimation pipeline (RTMPose + SMPL fitting).
@@ -69,7 +69,7 @@ Before you download, please request access to the data from [here](http://vision
 2.  Place the raw data subdirectory of data under `data/raw/human36m/`
 3.  We use this data for validating our pose estimation accuracy , we get output in form of MPJPE (Mean Per Joint Position Error) in mm
    ```
-python scripts/validate_smpl.py --input_dir data/raw/human36m --subjects S9 S11 --output_dir outputs/pose_validation
+python src/data/validate_smpl.py --input_dir data/raw/human36m --subjects S9 S11 --output_dir outputs/pose_validation
    ```
 
 # Training and Evaluation 
@@ -77,17 +77,17 @@ The code is using pytorch DDP so that it can be easily deployed on multiple gpus
 
 command for training on JTA with 3D poses:
 ```
-python train.py --config configs/jta_3d_pose.yaml --output_dir outputs/jta_exp
+python scripts/train.py --config configs/jta_3d_pose.yaml --output_dir outputs/jta_exp
 ```
 command for training on ETH/UCY with 2D poses:
 ```
-python train.py --config configs/eth_ucy_2d_pose.yaml --output_dir outputs/eth_exp
+python scripts/train.py --config configs/eth_ucy_2d_pose.yaml --output_dir outputs/eth_exp
 
 ```
 
 command for evaluating on JTA / ETH/UCY 
 ```
-python evaluate.py --model_path models/pgtp_{data_name}_best.pt --dataset {data_name} --num_samples 20
+python scripts/evaluate.py --model_path models/pgtp_{data_name}_best.pt --dataset {data_name} --num_samples 20
 ```
 
 
