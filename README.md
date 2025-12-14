@@ -68,6 +68,9 @@ Before you download, please request access to the data from [here](http://vision
 1. After getting the access, download the specific subjects S1, S5, S6, S7, S8 for training & S9, S11 for testing.
 2.  Place the raw data subdirectory of data under `data/raw/human36m/`
 3.  We use this data for validating our pose estimation accuracy , we get output in form of MPJPE (Mean Per Joint Position Error) in mm
+   ```
+python scripts/validate_smpl.py --input_dir data/raw/human36m --subjects S9 S11 --output_dir outputs/pose_validation
+   ```
 
 # Training and Evaluation 
 The code is using pytorch DDP so that it can be easily deployed on multiple gpus.
