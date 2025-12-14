@@ -96,8 +96,8 @@ Since it's still a  work-in-progress, integrating the 3D pose and trajectory fro
 
 Please find the results of the model in the paper. The first model, which is trained on ETH/UCY( only Trajectory), has baseline results, and when trained on (trajectory + 2D point), we see a ~25% improvement. The second model - trained on JTA(Trajectory + Velocity + 3D pose) gives us the best accuracy compared with the current Social-LSTM/GAN's. 
 
-#Demo Result
+# Demo Predicting Trajectory
 <p float="center">
-  <img src="downtown_upstairs_00.gif" width="98%" />
+  <img src="assets/Demo_Trajectory_prediction.gif" width="98%" />
 </p>
 
