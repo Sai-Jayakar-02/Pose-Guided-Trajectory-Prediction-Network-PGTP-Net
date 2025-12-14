@@ -1,0 +1,241 @@
+# =============================================================================
+# Social-Pose Model Configuration
+# =============================================================================
+# Main architecture: Pose-Guided Trajectory Prediction with Transformers
+# Based on: Social-Pose methodology with LSTM trajectory + Transformer pose
+# Expected improvement: 25-29% over trajectory-only baselines
+# =============================================================================
+
+model:
+  name: "SocialPosePredictor"
+  description: "Pose-guided trajectory prediction with transformer pose encoder"
+  
+  # ---------------------------------------------------------------------------
+  # Architecture Overview
+  # ---------------------------------------------------------------------------
+  # Trajectory [T×2] → LSTM Encoder → 
+  #                                    → Feature Fusion → LSTM Decoder → Positions [T_pred×2]
+  # Pose [T×J×3]     → Transformer  →                                 → Speeds [T_pred×1]
+  # Velocity [T×2]   → Velocity Enc →
+  # Neighbors [N×T×2]→ Social Pool  →
+  # ---------------------------------------------------------------------------
+  
+  # ---------------------------------------------------------------------------
+  # Trajectory Encoder (LSTM)
+  # ---------------------------------------------------------------------------
+  # Processes 2D position sequences to capture motion dynamics
+  trajectory_encoder:
+    type: "lstm"
+    input_dim: 2                    # (x, y) coordinates
+    embedding_dim: 64               # Spatial embedding dimension
+    hidden_dim: 128                 # LSTM hidden state dimension
+    num_layers: 1                   # Single layer (sufficient for trajectory)
+    dropout: 0.0                    # No dropout for small dataset
+    bidirectional: false            # Causal encoding for real-time
+    
+  # ---------------------------------------------------------------------------
+  # Pose Encoder (Transformer)
+  # ---------------------------------------------------------------------------
+  # Processes skeleton keypoints to extract body intent features
+  # Research shows: arms/legs receive 60-80% of attention weights
+  pose_encoder:
+    type: "transformer"
+    enabled: true                   # Set false to disable pose (ablation)
+    
+    # Input configuration
+    num_joints: 17                  # COCO: 17, JTA: 22, H36M: 32
+    input_dim: 3                    # 3D (x,y,z) or 2D (x,y,conf)
+    
+    # Transformer architecture
+    hidden_dim: 128                 # Model dimension (d_model)
+    num_heads: 8                    # Multi-head attention heads
+    num_layers: 2                   # Transformer encoder layers
+    feedforward_dim: 512            # FFN hidden dimension (4x hidden_dim)
+    dropout: 0.1                    # Attention & FFN dropout
+    
+    # Positional encoding
+    positional_encoding: "sinusoidal"  # Options: sinusoidal, learned
+    max_seq_len: 100                   # Maximum sequence length
+    
+    # Normalization (pelvis-centered, scale by torso)
+    normalize_pose: true
+    pelvis_joint_idx: 0             # COCO: 0 (nose) or custom pelvis
+    
+    # Joint importance (for weighted aggregation)
+    # Based on research: limbs are most predictive of trajectory changes
+    # 
+    # COCO format (17 joints) - use for ETH/UCY with extracted poses:
+    #   ankles: [15, 16], knees: [13, 14], hips: [11, 12]
+    #   shoulders: [5, 6], wrists: [9, 10], elbows: [7, 8]
+    #
+    # JTA format (22 joints) - use for JTA dataset:
+    #   pelvis: 13 (spine2), ankles: [18, 21], knees: [17, 20]
+    #   hips: [16, 19], shoulders: [4, 8], wrists: [6, 10], elbows: [5, 9]
+    #
+    joint_weights:
+      # Default: COCO format indices (17 joints)
+      ankles: [15, 16]              # Left/Right ankle - gait phase
+      knees: [13, 14]               # Left/Right knee - speed estimation
+      hips: [11, 12]                # Left/Right hip - direction change
+      shoulders: [5, 6]             # Left/Right shoulder - turn intention
+      wrists: [9, 10]               # Left/Right wrist - arm swing
+      elbows: [7, 8]                # Left/Right elbow
+      
+    # JTA-specific joint indices (uncomment when using JTA)
+    # joint_weights_jta:
+    #   pelvis: 13                  # spine2 - center
+    #   ankles: [18, 21]            # right/left ankle
+    #   knees: [17, 20]             # right/left knee
+    #   hips: [16, 19]              # right/left hip
+    #   shoulders: [4, 8]           # right/left shoulder
+    #   wrists: [6, 10]             # right/left wrist
+    #   elbows: [5, 9]              # right/left elbow
+      
+  # ---------------------------------------------------------------------------
+  # Velocity Encoder
+  # ---------------------------------------------------------------------------
+  # Encodes velocity information for speed-adaptive prediction
+  velocity_encoder:
+    type: "lstm"
+    enabled: true                   # Set false to disable velocity features
+    
+    input_dim: 2                    # Velocity vector (vx, vy)
+    hidden_dim: 64                  # Smaller than trajectory encoder
+    
+    # Additional velocity features
+    encode_speed: true              # Scalar speed magnitude
+    encode_heading: true            # Heading direction (sin, cos)
+    encode_acceleration: false      # Second derivative (optional)
+    
+  # ---------------------------------------------------------------------------
+  # Social Pooling Module
+  # ---------------------------------------------------------------------------
+  # Captures multi-agent interactions for collision avoidance
+  social_pooling:
+    type: "grid"                    # Options: grid, attention, polar
+    enabled: true                   # Set false for single-agent prediction
+    
+    # Grid-based pooling (Social-LSTM style)
+    grid_size: 8                    # 8x8 grid around each agent
+    neighborhood_size: 2.0          # Neighborhood radius in meters
+    
+    # Hidden dimensions
+    hidden_dim: 128                 # Input feature dimension
+    pooling_dim: 256                # Output pooling dimension
+    
+    # Attention-based pooling (alternative)
+    attention_heads: 4              # If using attention pooling
+    
+  # ---------------------------------------------------------------------------
+  # Feature Fusion
+  # ---------------------------------------------------------------------------
+  # Combines encoded features from all encoders
+  fusion:
+    type: "concatenation"           # Options: concatenation, cross_attention
+    
+    # Concatenation fusion
+    # Total = traj_hidden + pose_hidden + vel_hidden = 128 + 128 + 64 = 320
+    fusion_dim: 320                 # After concatenation
+    output_dim: 256                 # After MLP projection
+    
+    # MLP for fusion
+    mlp_layers: [320, 256]          # Hidden dimensions
+    mlp_dropout: 0.1
+    mlp_activation: "relu"
+    
+  # ---------------------------------------------------------------------------
+  # Trajectory Decoder
+  # ---------------------------------------------------------------------------
+  # Generates future trajectory positions and speeds
+  decoder:
+    type: "lstm"
+    
+    # Architecture
+    hidden_dim: 256                 # Matches fusion output
+    embedding_dim: 64               # For input embedding
+    num_layers: 1                   # Single decoder layer
+    
+    # Output heads
+    output_dim: 2                   # Position displacement (dx, dy)
+    predict_speed: true             # Additional speed head
+    predict_uncertainty: true       # Uncertainty estimation (sigma)
+    
+    # Generation mode
+    autoregressive: true            # Feed predictions back as input
+    teacher_forcing_ratio: 0.5      # During training (decay over epochs)
+    
+    # Sampling (for diverse predictions)
+    num_samples: 20                 # Best-of-K evaluation
+    sample_mode: "gaussian"         # Options: gaussian, dropout
+    noise_std: 0.1                  # Noise for sampling
+    
+# =============================================================================
+# Model Variants (for ablation studies)
+# =============================================================================
+variants:
+  # Full model (default)
+  full:
+    use_pose: true
+    use_velocity: true
+    use_social: true
+    
+  # Trajectory only (baseline)
+  trajectory_only:
+    use_pose: false
+    use_velocity: false
+    use_social: false
+    
+  # With pose only
+  with_pose:
+    use_pose: true
+    use_velocity: false
+    use_social: false
+    
+  # With velocity only
+  with_velocity:
+    use_pose: false
+    use_velocity: true
+    use_social: false
+    
+  # With social only
+  with_social:
+    use_pose: false
+    use_velocity: false
+    use_social: true
+
+# =============================================================================
+# Initialization
+# =============================================================================
+initialization:
+  # Weight initialization
+  method: "xavier"                  # Options: xavier, kaiming, normal
+  
+  # LSTM initialization
+  lstm_forget_bias: 1.0             # Bias for forget gate
+  
+  # Pretrained weights (optional)
+  pretrained_pose_encoder: null     # Path to pretrained pose encoder
+  pretrained_trajectory: null       # Path to pretrained trajectory model
+  freeze_pose_encoder: false        # Freeze pose encoder weights
+  
+# =============================================================================
+# Regularization
+# =============================================================================
+regularization:
+  dropout: 0.1                      # General dropout
+  attention_dropout: 0.1            # Transformer attention dropout
+  weight_decay: 0.0005              # L2 regularization
+  label_smoothing: 0.0              # No label smoothing for regression
+  
+# =============================================================================
+# Expected Performance (ETH/UCY, Best-of-20)
+# =============================================================================
+# | Dataset | ADE   | FDE   | Improvement vs Baseline |
+# |---------|-------|-------|------------------------|
+# | ETH     | 0.61  | 1.12  | +25%                   |
+# | HOTEL   | 0.52  | 0.89  | +28%                   |
+# | UNIV    | 0.44  | 0.79  | +27%                   |
+# | ZARA1   | 0.22  | 0.38  | +35%                   |
+# | ZARA2   | 0.29  | 0.55  | +31%                   |
+# | AVG     | 0.41  | 0.75  | +29%                   |
+# =============================================================================

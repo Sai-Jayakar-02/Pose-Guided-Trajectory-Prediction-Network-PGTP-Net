@@ -1,0 +1,188 @@
+# =============================================================================
+# JTA Dataset Experiment Configuration
+# =============================================================================
+# Joint Track Auto dataset with full pose annotations
+# Primary training dataset for pose-guided trajectory prediction
+# =============================================================================
+
+experiment:
+  name: "jta_pose_guided"
+  description: "Pose-guided trajectory prediction training on JTA"
+  seed: 42
+
+# =============================================================================
+# Dataset Configuration
+# =============================================================================
+dataset:
+  name: "jta"
+  data_dir: "data/processed/jta"
+  raw_dir: "data/raw/jta"
+  
+  # Sequence parameters (downsampled from 30fps to 2.5fps)
+  obs_len: 8          # 3.2 seconds
+  pred_len: 12        # 4.8 seconds
+  fps: 2.5
+  original_fps: 30
+  downsample_factor: 12
+  
+  # JTA-specific
+  num_joints: 22
+  pelvis_index: 13
+  use_3d: false       # Use 2D projections
+  
+  # Splits
+  train_sequences: 256
+  val_sequences: 128
+  test_sequences: 128
+
+# =============================================================================
+# Model Configuration (Full Pose-Guided Model)
+# =============================================================================
+model:
+  name: "social_pose"
+  use_pose: true          # Enable pose encoder
+  use_velocity: true      # Enable velocity encoder
+  use_social: true        # Enable social pooling
+  
+  # Input dimensions
+  input_dim: 2              # x, y trajectory coordinates
+  pose_dim: 3               # x, y, z per joint (3D poses)
+  num_joints: 22
+  
+  # Trajectory encoder (LSTM-based)
+  trajectory_encoder:
+    type: "lstm"
+    hidden_dim: 128
+    embedding_dim: 64
+    num_layers: 1
+    dropout: 0.1
+  
+  # Pose encoder (ENABLED for JTA)
+  pose_encoder:
+    enabled: true
+    type: "transformer"
+    input_dim: 3            # 3D pose coordinates
+    hidden_dim: 128
+    num_layers: 2
+    num_heads: 8
+    dropout: 0.1
+    num_joints: 22
+    # Pose-specific
+    normalize_pose: true
+    center_around_pelvis: true
+  
+  # Velocity encoder
+  velocity_encoder:
+    enabled: true
+    hidden_dim: 64
+    num_layers: 1
+  
+  # Social pooling
+  social_pooling:
+    enabled: true
+    type: "attention"
+    hidden_dim: 64
+    neighborhood_size: 3.0
+  
+  # Decoder
+  decoder:
+    type: "cvae"
+    hidden_dim: 256
+    latent_dim: 32
+    num_samples: 20
+    
+  dropout: 0.1
+
+# =============================================================================
+# Training Configuration
+# =============================================================================
+training:
+  epochs: 300
+  batch_size: 128
+  num_workers: 8
+  
+  optimizer:
+    name: "adamw"
+    lr: 0.0005
+    weight_decay: 0.0001
+    betas: [0.9, 0.999]
+  
+  scheduler:
+    name: "cosine"
+    warmup_epochs: 20
+    min_lr: 0.000001
+  
+  loss:
+    ade_weight: 1.0
+    fde_weight: 1.0
+    kld_weight: 0.1
+    variety_weight: 0.5
+    pose_consistency_weight: 0.1    # Pose-trajectory consistency
+  
+  grad_clip: 1.0
+  dropout: 0.1
+  
+  early_stopping:
+    enabled: true
+    patience: 50
+    metric: "val_ade"
+    mode: "min"
+  
+  checkpoint:
+    save_best: true
+    save_last: true
+    save_every: 50
+
+# =============================================================================
+# Data Augmentation
+# =============================================================================
+augmentation:
+  enabled: true
+  
+  rotation:
+    enabled: true
+    range: [-180, 180]
+  
+  scaling:
+    enabled: true
+    range: [0.8, 1.2]
+  
+  noise:
+    enabled: true
+    std: 0.01
+  
+  flip:
+    enabled: true
+    prob: 0.5
+  
+  # Pose-specific augmentation
+  pose_dropout:
+    enabled: true
+    prob: 0.1           # Randomly drop joints to handle occlusion
+
+# =============================================================================
+# Evaluation Configuration
+# =============================================================================
+evaluation:
+  num_samples: 20
+  
+  metrics:
+    - "ade"
+    - "fde"
+    - "collision_rate"
+  
+  collision_threshold: 0.1
+  
+  visualization:
+    enabled: true
+    num_visualize: 50
+    show_skeleton: true
+    show_uncertainty: true
+
+# =============================================================================
+# Output Configuration
+# =============================================================================
+output:
+  base_dir: "outputs"
+  save_predictions: true
+  save_visualizations: true

@@ -1,0 +1,164 @@
+# =============================================================================
+# Baseline LSTM Model Configuration
+# =============================================================================
+# Architecture: Social-LSTM (Alahi et al., CVPR 2016)
+# Purpose: Baseline for ablation studies and comparison
+# No pose features - trajectory only with social pooling
+# =============================================================================
+
+model:
+  name: "BaselineLSTM"
+  description: "Social-LSTM baseline - trajectory only with grid-based social pooling"
+  
+  # ---------------------------------------------------------------------------
+  # Architecture Overview
+  # ---------------------------------------------------------------------------
+  # Trajectory [T×2] → LSTM Encoder → Social Pooling → LSTM Decoder → Positions [T_pred×2]
+  # ---------------------------------------------------------------------------
+  
+  # ---------------------------------------------------------------------------
+  # Trajectory Encoder (LSTM)
+  # ---------------------------------------------------------------------------
+  # Core component: encodes observed trajectory
+  trajectory_encoder:
+    type: "lstm"
+    input_dim: 2                    # (x, y) coordinates
+    embedding_dim: 64               # Spatial embedding dimension
+    hidden_dim: 128                 # LSTM hidden state dimension
+    num_layers: 1                   # Single layer
+    dropout: 0.0                    # No dropout
+    bidirectional: false            # Causal for real-time
+    
+  # ---------------------------------------------------------------------------
+  # Pose Encoder (DISABLED for baseline)
+  # ---------------------------------------------------------------------------
+  pose_encoder:
+    type: "transformer"
+    enabled: false                  # ❌ DISABLED - no pose features
+    
+  # ---------------------------------------------------------------------------
+  # Velocity Encoder (DISABLED for baseline)
+  # ---------------------------------------------------------------------------
+  velocity_encoder:
+    type: "lstm"
+    enabled: false                  # ❌ DISABLED - implicit in trajectory
+    
+  # ---------------------------------------------------------------------------
+  # Social Pooling Module
+  # ---------------------------------------------------------------------------
+  # Grid-based social pooling from Social-LSTM paper
+  social_pooling:
+    type: "grid"
+    enabled: true                   # ✅ ENABLED - core Social-LSTM feature
+    
+    # Grid configuration (from original paper)
+    grid_size: 8                    # 8x8 spatial grid
+    neighborhood_size: 2.0          # 2 meter neighborhood
+    
+    # Hidden dimensions
+    hidden_dim: 128
+    pooling_dim: 256
+    
+    # Pooling operation
+    pooling_type: "sum"             # Options: sum, max, mean
+    
+  # ---------------------------------------------------------------------------
+  # Feature Fusion (simplified)
+  # ---------------------------------------------------------------------------
+  fusion:
+    type: "concatenation"
+    
+    # Only trajectory + social pooling
+    # Total = traj_hidden + pooling_dim = 128 + 256 = 384
+    fusion_dim: 384
+    output_dim: 128                 # Project back to LSTM dim
+    
+    mlp_layers: [384, 128]
+    mlp_dropout: 0.0
+    mlp_activation: "relu"
+    
+  # ---------------------------------------------------------------------------
+  # Trajectory Decoder
+  # ---------------------------------------------------------------------------
+  decoder:
+    type: "lstm"
+    
+    hidden_dim: 128
+    embedding_dim: 64
+    num_layers: 1
+    
+    # Output (positions only, no speed/uncertainty)
+    output_dim: 2
+    predict_speed: false            # ❌ DISABLED
+    predict_uncertainty: false      # ❌ DISABLED
+    
+    # Generation
+    autoregressive: true
+    teacher_forcing_ratio: 0.5
+    
+    # Sampling
+    num_samples: 20
+    sample_mode: "gaussian"
+    noise_std: 0.1
+
+# =============================================================================
+# Training Configuration (Social-LSTM specific)
+# =============================================================================
+training:
+  # Hyperparameters from original paper
+  optimizer:
+    name: "adam"                    # Original used RMSProp
+    lr: 0.003                       # Higher LR for LSTM
+    weight_decay: 0.0
+    
+  scheduler:
+    name: "step"
+    step_size: 20
+    gamma: 0.5
+    
+  # Loss (L2 only, no diversity loss in original)
+  loss:
+    type: "mse"
+    lambda_ade: 1.0
+    lambda_fde: 0.0                 # Original only used ADE
+    
+  # Training duration
+  num_epochs: 200
+  batch_size: 64
+  grad_clip: 10.0                   # Original paper value
+  
+# =============================================================================
+# Variants
+# =============================================================================
+variants:
+  # Original Social-LSTM
+  social_lstm:
+    use_social: true
+    
+  # Vanilla LSTM (no social pooling)
+  vanilla_lstm:
+    use_social: false
+
+# =============================================================================
+# Expected Performance (ETH/UCY, Best-of-20)
+# =============================================================================
+# From original Social-LSTM paper:
+# | Dataset | ADE   | FDE   |
+# |---------|-------|-------|
+# | ETH     | 1.09  | 2.35  |
+# | HOTEL   | 0.79  | 1.76  |
+# | UNIV    | 0.67  | 1.40  |
+# | ZARA1   | 0.47  | 1.00  |
+# | ZARA2   | 0.56  | 1.17  |
+# | AVG     | 0.72  | 1.54  |
+# 
+# Our reimplementation (with variety loss):
+# | Dataset | ADE   | FDE   |
+# |---------|-------|-------|
+# | ETH     | 0.81  | 1.52  |
+# | HOTEL   | 0.72  | 1.61  |
+# | UNIV    | 0.60  | 1.26  |
+# | ZARA1   | 0.34  | 0.69  |
+# | ZARA2   | 0.42  | 0.84  |
+# | AVG     | 0.58  | 1.18  |
+# =============================================================================

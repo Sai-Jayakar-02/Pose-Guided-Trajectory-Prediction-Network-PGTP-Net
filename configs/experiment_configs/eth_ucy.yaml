@@ -1,0 +1,211 @@
+# =============================================================================
+# ETH/UCY Benchmark Experiment Configuration
+# =============================================================================
+# Standard trajectory prediction benchmark with 5 scenes
+# Protocol: Leave-one-out cross-validation
+# Metrics: ADE/FDE (Best-of-20)
+# =============================================================================
+
+experiment:
+  name: "eth_ucy_benchmark"
+  description: "Standard ETH/UCY trajectory prediction benchmark"
+  seed: 42
+
+# =============================================================================
+# Dataset Configuration
+# =============================================================================
+dataset:
+  name: "eth_ucy"
+  data_dir: "data/processed/eth_ucy"
+  raw_dir: "data/raw/eth_ucy"
+  
+  # Available scenes
+  scenes:
+    - "eth"
+    - "hotel"
+    - "univ"
+    - "zara1"
+    - "zara2"
+  
+  # Sequence parameters
+  obs_len: 8          # 3.2 seconds at 2.5 FPS
+  pred_len: 12        # 4.8 seconds at 2.5 FPS
+  fps: 2.5
+  
+  # Data loading
+  skip: 1
+  min_ped: 1
+
+# =============================================================================
+# Model Configuration
+# =============================================================================
+model:
+  name: "social_pose"
+  
+  # Input dimensions
+  input_dim: 2              # x, y coordinates
+  pose_dim: 0               # No pose for ETH/UCY (set to 34 for JTA: 17 joints * 2)
+  num_joints: 0             # No pose keypoints
+  
+  # Trajectory encoder
+  trajectory_encoder:
+    type: "transformer"     # "lstm" or "transformer"
+    hidden_dim: 128
+    num_layers: 2
+    num_heads: 4            # For transformer
+    dropout: 0.1
+  
+  # Pose encoder (disabled for ETH/UCY)
+  pose_encoder:
+    enabled: false
+    type: "transformer"
+    hidden_dim: 64
+    num_layers: 2
+    num_heads: 4
+    dropout: 0.1
+  
+  # Velocity encoder
+  velocity_encoder:
+    enabled: true
+    hidden_dim: 32
+    num_layers: 1
+  
+  # Social pooling
+  social_pooling:
+    enabled: true
+    type: "attention"       # "attention", "pooling", or "graph"
+    hidden_dim: 64
+    neighborhood_size: 2.0  # meters
+  
+  # Decoder
+  decoder:
+    type: "cvae"            # "deterministic", "cvae", or "gmm"
+    hidden_dim: 128
+    latent_dim: 32
+    num_layers: 2
+    num_modes: 20           # For multi-modal prediction
+    
+  # Feature fusion
+  fusion:
+    type: "concat"          # "concat", "attention", or "gated"
+    hidden_dim: 128
+
+# =============================================================================
+# Training Configuration
+# =============================================================================
+training:
+  # Basic settings
+  epochs: 200
+  batch_size: 64
+  num_workers: 4
+  
+  # Optimizer
+  optimizer:
+    name: "adamw"
+    lr: 0.001
+    weight_decay: 0.0001
+    betas: [0.9, 0.999]
+  
+  # Learning rate scheduler
+  scheduler:
+    name: "cosine"          # "step", "cosine", "plateau"
+    warmup_epochs: 10
+    min_lr: 0.000001
+    # For step scheduler:
+    step_size: 50
+    gamma: 0.5
+  
+  # Loss weights
+  loss:
+    ade_weight: 1.0
+    fde_weight: 1.0
+    kld_weight: 0.1         # KL divergence for CVAE
+    variety_weight: 0.5     # Diversity loss
+  
+  # Regularization
+  grad_clip: 1.0
+  dropout: 0.1
+  
+  # Early stopping
+  early_stopping:
+    enabled: true
+    patience: 30
+    metric: "val_ade"
+    mode: "min"
+  
+  # Checkpointing
+  checkpoint:
+    save_best: true
+    save_last: true
+    save_every: 50
+
+# =============================================================================
+# Data Augmentation
+# =============================================================================
+augmentation:
+  enabled: true
+  
+  # Random rotation
+  rotation:
+    enabled: true
+    range: [-180, 180]
+  
+  # Random scaling
+  scaling:
+    enabled: true
+    range: [0.8, 1.2]
+  
+  # Gaussian noise
+  noise:
+    enabled: true
+    std: 0.01
+  
+  # Horizontal flip
+  flip:
+    enabled: true
+    prob: 0.5
+
+# =============================================================================
+# Evaluation Configuration
+# =============================================================================
+evaluation:
+  # Best-of-K sampling
+  num_samples: 20
+  
+  # Metrics to compute
+  metrics:
+    - "ade"
+    - "fde"
+    - "collision_rate"
+    - "miss_rate"
+  
+  # Collision detection
+  collision_threshold: 0.1    # 10cm
+  miss_threshold: 2.0         # 2m for miss rate
+  
+  # Visualization
+  visualization:
+    enabled: true
+    num_visualize: 20
+    show_uncertainty: true
+
+# =============================================================================
+# Output Configuration
+# =============================================================================
+output:
+  base_dir: "outputs"
+  save_predictions: true
+  save_visualizations: true
+
+# =============================================================================
+# Expected Baseline Results (Social-LSTM)
+# =============================================================================
+# | Scene  | ADE   | FDE   |
+# |--------|-------|-------|
+# | ETH    | 0.81  | 1.52  |
+# | HOTEL  | 0.72  | 1.61  |
+# | UNIV   | 0.60  | 1.26  |
+# | ZARA1  | 0.34  | 0.69  |
+# | ZARA2  | 0.42  | 0.84  |
+# | AVG    | 0.58  | 1.18  |
+# =============================================================================

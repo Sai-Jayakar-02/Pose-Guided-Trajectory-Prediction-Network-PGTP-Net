@@ -1,0 +1,322 @@
+# =============================================================================
+# Long-Term 30-Second Prediction Experiment Configuration
+# =============================================================================
+# Extended prediction horizon: 30 seconds (vs standard 4.8 seconds)
+# Research frontier: Point predictions become meaningless at this horizon
+# Approach: Hierarchical goal-conditioned with uncertainty estimation
+# =============================================================================
+
+experiment:
+  name: "long_term_30s_prediction"
+  description: "30-second trajectory prediction with uncertainty and goal estimation"
+  
+# =============================================================================
+# Prediction Horizon Analysis
+# =============================================================================
+# Standard: 8 obs → 12 pred (3.2s → 4.8s at 2.5fps)
+# Long-term: 8 obs → 75 pred (3.2s → 30s at 2.5fps)
+#
+# Challenges at 30 seconds:
+# - Human decisions are unpredictable beyond ~5 seconds
+# - Goals become ambiguous (multiple possible destinations)
+# - Error accumulates (autoregressive drift)
+#
+# Solutions:
+# 1. Goal prediction instead of trajectory
+# 2. Uncertainty grows with horizon
+# 3. Hierarchical: goals → waypoints → trajectory
+# 4. Probabilistic occupancy instead of point prediction
+# =============================================================================
+
+# =============================================================================
+# Dataset Configuration
+# =============================================================================
+dataset:
+  name: "jta"                            # JTA has long enough trajectories
+  data_root: "data/raw/jta"
+  processed_root: "data/processed/jta_long_term"
+  
+  # Filter for longer trajectories
+  filtering:
+    min_trajectory_length: 100           # Need 100+ frames (40 seconds at 2.5fps)
+    min_ped: 1
+    
+# =============================================================================
+# Sequence Configuration (30 seconds)
+# =============================================================================
+sequence:
+  obs_len: 8                             # 3.2 seconds observation
+  pred_len: 75                           # 30 seconds prediction (75 frames at 2.5fps)
+  fps: 2.5
+  
+  # Long sequences need special handling
+  skip: 5                                # Larger stride to avoid overlap
+  
+  # Sub-sampling for hierarchical prediction
+  hierarchical:
+    enabled: true
+    # Coarse predictions (goals): every 2.5 seconds
+    coarse_interval: 6                   # 6 frames = 2.4 seconds
+    # Fine predictions: every 0.4 seconds (standard)
+    fine_interval: 1
+    
+# =============================================================================
+# Model Configuration (Hierarchical)
+# =============================================================================
+model:
+  config: "configs/model_configs/social_pose.yaml"
+  
+  # Architecture for long-term prediction
+  architecture: "hierarchical"           # Options: autoregressive, hierarchical, goal_conditioned
+  
+  overrides:
+    # Pose encoder (critical for early intent detection)
+    pose_encoder:
+      enabled: true
+      num_joints: 22
+      input_dim: 3
+      
+    # Velocity (helps predict speed changes)
+    velocity_encoder:
+      enabled: true
+      
+    # Decoder modifications for long-term
+    decoder:
+      hidden_dim: 256                    # Larger for complexity
+      predict_speed: true
+      predict_uncertainty: true          # Critical for long-term
+      
+  # Hierarchical prediction heads
+  hierarchical_heads:
+    # Goal prediction head (where will they go in 30s?)
+    goal_head:
+      enabled: true
+      output_type: "gaussian_mixture"    # GMM for multi-modal goals
+      num_modes: 5                       # 5 possible goal regions
+      horizon: 75                        # 30 seconds
+      
+    # Waypoint prediction head (intermediate points every 5s)
+    waypoint_head:
+      enabled: true
+      output_type: "deterministic"
+      num_waypoints: 6                   # 6 waypoints = every 5 seconds
+      horizons: [12, 25, 37, 50, 62, 75] # Frames for each waypoint
+      
+    # Fine trajectory head (standard autoregressive)
+    trajectory_head:
+      enabled: true
+      pred_len: 12                       # Refine in 4.8s segments
+      
+  # Uncertainty estimation
+  uncertainty:
+    enabled: true
+    type: "heteroscedastic"              # Predict variance per timestep
+    min_std: 0.1                         # Minimum uncertainty (meters)
+    max_std: 5.0                         # Maximum uncertainty (meters)
+    
+    # Uncertainty should grow with prediction horizon
+    temporal_growth:
+      enabled: true
+      growth_rate: "sqrt"                # sqrt(t) growth
+      # At 30s: sqrt(75) * 0.1 ≈ 0.87m minimum uncertainty
+      
+# =============================================================================
+# Training Configuration
+# =============================================================================
+training:
+  batch_size: 32                         # Smaller batch for long sequences
+  num_epochs: 500                        # More epochs needed
+  num_workers: 4
+  
+  # Optimizer
+  optimizer:
+    name: "adamw"
+    lr: 0.0005                           # Lower LR for stability
+    weight_decay: 0.001
+    
+  # Scheduler with warmup
+  scheduler:
+    name: "cosine"
+    warmup_epochs: 20
+    min_lr: 0.00001
+    
+  # Multi-task loss for hierarchical prediction
+  loss:
+    # Standard trajectory loss
+    lambda_ade: 1.0
+    lambda_fde: 1.0
+    
+    # Goal prediction loss
+    lambda_goal: 2.0                     # Weight goal prediction higher
+    goal_loss_type: "nll"                # Negative log-likelihood for GMM
+    
+    # Waypoint loss
+    lambda_waypoint: 1.5
+    
+    # Speed consistency
+    lambda_speed: 0.5
+    
+    # Uncertainty calibration (NLL loss)
+    lambda_uncertainty: 0.5
+    
+    # Diversity loss
+    lambda_diversity: 0.5
+    k_samples: 20
+    
+  # Curriculum learning (start with short predictions, increase)
+  curriculum:
+    enabled: true
+    stages:
+      - epochs: [0, 100]
+        pred_len: 12                     # Start with 4.8s
+      - epochs: [100, 200]
+        pred_len: 25                     # Increase to 10s
+      - epochs: [200, 300]
+        pred_len: 50                     # Increase to 20s
+      - epochs: [300, 500]
+        pred_len: 75                     # Full 30s
+        
+  # Regularization
+  grad_clip: 0.5                         # Tighter clipping for stability
+  
+  # Checkpointing
+  save_dir: "checkpoints/trained/long_term_30s"
+  save_every: 20
+  save_best: true
+  
+# =============================================================================
+# Data Augmentation (Extended)
+# =============================================================================
+augmentation:
+  enabled: true
+  
+  rotation:
+    enabled: true
+    range: [-180, 180]
+    
+  scaling:
+    enabled: true
+    range: [0.8, 1.2]
+    
+  noise:
+    enabled: true
+    std: 0.02
+    
+  # Speed augmentation (critical for long-term)
+  speed_augment:
+    enabled: true
+    range: [0.3, 2.5]                    # Wider range for long-term
+    
+  # Trajectory cropping (random sub-sequences)
+  temporal_crop:
+    enabled: true
+    min_length: 50                       # At least 20 seconds
+    
+  # Goal perturbation (simulate alternative destinations)
+  goal_augment:
+    enabled: true
+    perturbation_std: 0.5                # Perturb goal by 0.5m std
+    
+# =============================================================================
+# Evaluation Configuration
+# =============================================================================
+evaluation:
+  k_samples: 20
+  
+  # Extended metrics for long-term
+  metrics:
+    # Standard
+    - "ade"
+    - "fde"
+    
+    # Time-specific ADE
+    - "ade_at_time"
+    
+    # Goal metrics
+    - "goal_ade"                         # ADE of goal prediction
+    - "goal_fde"                         # FDE at final goal
+    - "goal_coverage"                    # % predictions within goal region
+    
+    # Uncertainty metrics
+    - "calibration_error"                # Are uncertainties well-calibrated?
+    - "nll"                              # Negative log-likelihood
+    
+    # Collision
+    - "collision_rate"
+    
+  # Time horizons for ade_at_time
+  time_horizons: [1.0, 2.0, 5.0, 10.0, 15.0, 20.0, 25.0, 30.0]
+  
+  # Goal region evaluation
+  goal_region:
+    radius: 1.0                          # 1 meter goal region
+    coverage_threshold: 0.8              # 80% coverage target
+    
+  # Visualization
+  visualize:
+    enabled: true
+    num_samples: 10
+    save_dir: "outputs/visualizations/long_term"
+    
+    # Long-term specific visualization
+    show_goal_distribution: true         # Show GMM goal modes
+    show_waypoints: true                 # Show intermediate waypoints
+    show_uncertainty_cone: true          # Uncertainty growing over time
+    
+# =============================================================================
+# Expected Results (30-second prediction)
+# =============================================================================
+# Note: Point prediction metrics become less meaningful at 30s
+# Focus on goal prediction and probabilistic metrics
+#
+# | Metric              | Value   | Notes                          |
+# |---------------------|---------|--------------------------------|
+# | ADE (30s)           | 3-5m    | Acceptable for long-term       |
+# | FDE (30s)           | 5-8m    | High variance expected         |
+# | Goal ADE            | 1-2m    | More meaningful metric         |
+# | Goal Coverage (1m)  | 70-80%  | % in goal region               |
+# | ADE (5s)            | 0.5-0.8m| Short-term still accurate      |
+# | ADE (10s)           | 1-1.5m  | Medium-term                    |
+# | Calibration Error   | <0.1    | Well-calibrated uncertainty    |
+#
+# Key insight: Pose helps detect intent early → better goal prediction
+# =============================================================================
+
+# =============================================================================
+# Alternative Approaches (for comparison)
+# =============================================================================
+alternatives:
+  # Pure autoregressive (baseline)
+  autoregressive:
+    architecture: "autoregressive"
+    pred_len: 75
+    curriculum: false
+    
+  # Diffusion-based
+  diffusion:
+    config: "configs/model_configs/diffusion.yaml"
+    overrides:
+      sampling:
+        ddim:
+          num_steps: 10                  # More steps for long-term
+          
+  # Goal-conditioned only
+  goal_conditioned:
+    architecture: "goal_conditioned"
+    goal_prediction_only: true           # Only predict goal, not full trajectory
+    
+# =============================================================================
+# Run Commands
+# =============================================================================
+# Train:
+#   python experiments/train.py --config configs/experiment_configs/long_term_30s.yaml
+#
+# Train with curriculum:
+#   python experiments/train.py --config configs/experiment_configs/long_term_30s.yaml --curriculum
+#
+# Evaluate at different horizons:
+#   python experiments/evaluate.py --config configs/experiment_configs/long_term_30s.yaml --horizons 5,10,20,30
+#
+# Visualize uncertainty cones:
+#   python experiments/evaluate.py --config configs/experiment_configs/long_term_30s.yaml --visualize --uncertainty
+# =============================================================================

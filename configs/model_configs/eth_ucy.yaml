@@ -1,0 +1,257 @@
+# =============================================================================
+# ETH/UCY Benchmark Experiment Configuration
+# =============================================================================
+# Standard trajectory prediction benchmark with 5 scenes
+# Protocol: Leave-one-out cross-validation
+# Metrics: ADE/FDE (Best-of-20)
+# =============================================================================
+
+experiment:
+  name: "eth_ucy_benchmark"
+  description: "Standard ETH/UCY trajectory prediction benchmark"
+  
+# =============================================================================
+# Dataset Configuration
+# =============================================================================
+dataset:
+  name: "eth_ucy"
+  data_root: "data/raw/eth_ucy"
+  processed_root: "data/processed/eth_ucy"
+  
+  # 5 scenes in ETH/UCY
+  scenes:
+    - name: "eth"
+      path: "eth/eth.txt"
+      homography: "eth/H.txt"           # Pixel to world transform (optional)
+      fps: 2.5
+      description: "ETH campus scene with sparse pedestrians"
+      
+    - name: "hotel"
+      path: "hotel/hotel.txt"
+      homography: "hotel/H.txt"
+      fps: 2.5
+      description: "Hotel entrance with medium density"
+      
+    - name: "univ"
+      path: "univ/univ.txt"
+      homography: "univ/H.txt"
+      fps: 2.5
+      description: "University campus, high density students"
+      
+    - name: "zara1"
+      path: "zara1/zara1.txt"
+      homography: "zara1/H.txt"
+      fps: 2.5
+      description: "Zara store area, first sequence"
+      
+    - name: "zara2"
+      path: "zara2/zara2.txt"
+      homography: "zara2/H.txt"
+      fps: 2.5
+      description: "Zara store area, second sequence"
+      
+  # Data format
+  format:
+    delimiter: "\t"                     # Tab-separated
+    columns: ["frame_id", "ped_id", "x", "y"]
+    frame_skip: 10                      # Original: 25fps, annotations at 2.5fps
+    
+  # Pose extraction (no native pose data)
+  pose_extraction:
+    enabled: false                      # Set true to extract with YOLOv8
+    detector: "yolov8m-pose"
+    video_dir: null                     # Path to video files if available
+    
+# =============================================================================
+# Sequence Configuration
+# =============================================================================
+sequence:
+  # Standard benchmark protocol
+  obs_len: 8                            # 3.2 seconds observation
+  pred_len: 12                          # 4.8 seconds prediction
+  fps: 2.5                              # Frames per second
+  
+  # Sequence creation
+  skip: 1                               # Sliding window stride
+  min_ped: 1                            # Minimum pedestrians per sequence
+  threshold: 0.002                      # Distance threshold for stationary removal
+  
+# =============================================================================
+# Leave-One-Out Cross-Validation Protocol
+# =============================================================================
+cross_validation:
+  type: "leave_one_out"
+  
+  # Run 5 experiments, each with different test scene
+  folds:
+    - name: "test_eth"
+      test: ["eth"]
+      train: ["hotel", "univ", "zara1", "zara2"]
+      
+    - name: "test_hotel"
+      test: ["hotel"]
+      train: ["eth", "univ", "zara1", "zara2"]
+      
+    - name: "test_univ"
+      test: ["univ"]
+      train: ["eth", "hotel", "zara1", "zara2"]
+      
+    - name: "test_zara1"
+      test: ["zara1"]
+      train: ["eth", "hotel", "univ", "zara2"]
+      
+    - name: "test_zara2"
+      test: ["zara2"]
+      train: ["eth", "hotel", "univ", "zara1"]
+      
+  # Validation split from training data
+  val_ratio: 0.15
+  
+# =============================================================================
+# Model Configuration
+# =============================================================================
+model:
+  config: "configs/model_configs/social_pose.yaml"
+  
+  # Model-specific overrides for ETH/UCY
+  overrides:
+    pose_encoder:
+      enabled: false                    # No native pose in ETH/UCY
+      # Set to true if using pose extraction
+      
+    velocity_encoder:
+      enabled: true
+      
+    social_pooling:
+      enabled: true
+      neighborhood_size: 2.0            # 2 meter neighborhood
+      
+# =============================================================================
+# Training Configuration
+# =============================================================================
+training:
+  # Basic settings
+  batch_size: 64
+  num_epochs: 200
+  num_workers: 4
+  
+  # Optimizer
+  optimizer:
+    name: "adam"
+    lr: 0.001
+    weight_decay: 0.0
+    
+  # Scheduler
+  scheduler:
+    name: "step"
+    step_size: 50
+    gamma: 0.5
+    
+  # Loss
+  loss:
+    lambda_ade: 1.0
+    lambda_fde: 1.0
+    lambda_diversity: 0.5             # Variety loss weight
+    k_samples: 20                     # Best-of-K
+    
+  # Regularization
+  grad_clip: 1.0
+  
+  # Early stopping
+  early_stopping:
+    enabled: true
+    patience: 50
+    metric: "val_ade"
+    mode: "min"
+    
+  # Checkpointing
+  save_dir: "checkpoints/trained/eth_ucy"
+  save_every: 10
+  save_best: true
+  
+# =============================================================================
+# Data Augmentation
+# =============================================================================
+augmentation:
+  enabled: true
+  
+  rotation:
+    enabled: true
+    range: [-180, 180]                # Random rotation in degrees
+    
+  scaling:
+    enabled: true
+    range: [0.8, 1.2]                 # Random scaling
+    
+  noise:
+    enabled: true
+    std: 0.01                         # Gaussian noise (meters)
+    
+  flip:
+    enabled: true
+    prob: 0.5                         # Horizontal flip probability
+    
+  # Speed augmentation (important for adaptive velocity)
+  speed_augment:
+    enabled: true
+    range: [0.5, 2.0]                 # Temporal resampling factor
+    
+# =============================================================================
+# Evaluation Configuration
+# =============================================================================
+evaluation:
+  # Best-of-K protocol
+  k_samples: 20
+  
+  # Metrics
+  metrics:
+    - "ade"                           # Average Displacement Error
+    - "fde"                           # Final Displacement Error
+    - "col"                           # Collision rate
+    
+  # Collision detection
+  collision:
+    threshold: 0.1                    # 10cm collision threshold
+    
+  # Visualization
+  visualize:
+    enabled: true
+    num_samples: 10                   # Number of trajectories to visualize
+    save_dir: "outputs/visualizations/eth_ucy"
+    
+# =============================================================================
+# Expected Results (state-of-the-art reference)
+# =============================================================================
+# Baseline (Social-LSTM style, trajectory only):
+# | Scene  | ADE   | FDE   |
+# |--------|-------|-------|
+# | ETH    | 0.81  | 1.52  |
+# | HOTEL  | 0.72  | 1.61  |
+# | UNIV   | 0.60  | 1.26  |
+# | ZARA1  | 0.34  | 0.69  |
+# | ZARA2  | 0.42  | 0.84  |
+# | AVG    | 0.58  | 1.18  |
+#
+# Target (with pose + velocity):
+# | Scene  | ADE   | FDE   | Improvement |
+# |--------|-------|-------|-------------|
+# | ETH    | 0.61  | 1.12  | +25%        |
+# | HOTEL  | 0.52  | 0.89  | +28%        |
+# | UNIV   | 0.44  | 0.79  | +27%        |
+# | ZARA1  | 0.22  | 0.38  | +35%        |
+# | ZARA2  | 0.29  | 0.55  | +31%        |
+# | AVG    | 0.41  | 0.75  | +29%        |
+# =============================================================================
+
+# =============================================================================
+# Run Commands
+# =============================================================================
+# Single fold:
+#   python experiments/train.py --config configs/experiment_configs/eth_ucy.yaml --fold test_eth
+#
+# All folds (cross-validation):
+#   python experiments/train.py --config configs/experiment_configs/eth_ucy.yaml --all_folds
+#
+# Evaluate:
+#   python experiments/evaluate.py --config configs/experiment_configs/eth_ucy.yaml --checkpoint best_model.pth
+# =============================================================================

@@ -1,0 +1,227 @@
+# Main Configuration File
+# Adaptive Pose-Guided Trajectory Prediction
+
+# =============================================================================
+# PATHS
+# =============================================================================
+paths:
+  data_root: "data"
+  raw_data: "data/raw"
+  processed_data: "data/processed"
+  checkpoints: "checkpoints"
+  outputs: "outputs"
+  logs: "outputs/logs"
+
+# =============================================================================
+# DATASET CONFIGURATION
+# =============================================================================
+dataset:
+  name: "eth_ucy"  # Options: eth_ucy, jta, jaad, pie, custom
+  
+  # ETH/UCY specific
+  eth_ucy:
+    scenes: ["eth", "hotel", "univ", "zara1", "zara2"]
+    test_scene: "eth"  # Leave-one-out: train on others, test on this
+    fps: 2.5
+    skip: 1  # Frame skip for data loading
+  
+  # JTA specific
+  jta:
+    train_sequences: 256
+    val_sequences: 128
+    fps: 2.5  # Downsampled from 30
+    num_joints: 22
+  
+  # Data split
+  split:
+    train: 0.7
+    val: 0.15
+    test: 0.15
+
+# =============================================================================
+# SEQUENCE CONFIGURATION
+# =============================================================================
+sequence:
+  obs_len: 8          # Observation length (frames) = 3.2s at 2.5fps
+  pred_len: 12        # Prediction length (frames) = 4.8s at 2.5fps
+  # pred_len: 75      # For 30-second prediction
+  skip: 1             # Frame skip when creating sequences
+  min_ped: 1          # Minimum pedestrians in scene
+  delim: "\t"         # Delimiter in data files
+
+# =============================================================================
+# MODEL CONFIGURATION
+# =============================================================================
+model:
+  name: "AdaptivePoseTrajectoryPredictor"
+  
+  # Trajectory Encoder (LSTM)
+  trajectory_encoder:
+    input_dim: 2
+    embedding_dim: 64
+    hidden_dim: 128
+    num_layers: 1
+    dropout: 0.0
+  
+  # Pose Encoder (Transformer)
+  pose_encoder:
+    num_joints: 17      # COCO format (use 22 for JTA)
+    input_dim: 3        # XYZ coordinates (use 2 for 2D)
+    hidden_dim: 128
+    num_heads: 8
+    num_layers: 2
+    dropout: 0.1
+    use_pose: true      # Set false to train without pose
+  
+  # Velocity Encoder
+  velocity_encoder:
+    input_dim: 2
+    hidden_dim: 64
+    use_velocity: true
+  
+  # Social Pooling
+  social_pooling:
+    hidden_dim: 128
+    pooling_dim: 256
+    use_social: true
+  
+  # Decoder
+  decoder:
+    hidden_dim: 128
+    embedding_dim: 64
+    output_dim: 2
+    predict_speed: true
+    predict_uncertainty: true
+
+# =============================================================================
+# TRAINING CONFIGURATION
+# =============================================================================
+training:
+  # Basic settings
+  batch_size: 64
+  num_epochs: 200
+  num_workers: 4
+  pin_memory: true
+  
+  # Optimizer
+  optimizer:
+    name: "adamw"       # Options: adam, adamw, sgd
+    lr: 0.001           # 1e-3 for LSTM, 7.5e-4 for transformer
+    weight_decay: 0.0005
+    betas: [0.9, 0.999]
+  
+  # Learning rate scheduler
+  scheduler:
+    name: "step"        # Options: step, cosine, plateau
+    step_size: 10
+    gamma: 0.5
+    min_lr: 0.00001
+  
+  # Loss weights
+  loss:
+    lambda_ade: 1.0
+    lambda_fde: 1.0
+    lambda_speed: 0.5
+    lambda_diversity: 0.1
+    k_samples: 20       # For variety loss
+  
+  # Gradient clipping
+  grad_clip: 1.0
+  
+  # Early stopping
+  early_stopping:
+    patience: 50
+    min_delta: 0.001
+  
+  # Checkpointing
+  save_every: 10        # Save checkpoint every N epochs
+  save_best: true       # Save best model based on val ADE
+
+# =============================================================================
+# DATA AUGMENTATION
+# =============================================================================
+augmentation:
+  enabled: true
+  rotation:
+    enabled: true
+    range: [-180, 180]  # Degrees
+  scaling:
+    enabled: true
+    range: [0.8, 1.2]
+  translation:
+    enabled: false
+    range: [-1.0, 1.0]
+  noise:
+    enabled: true
+    std: 0.01           # Gaussian noise std
+  speed_augment:
+    enabled: true
+    range: [0.5, 2.0]   # Speed factor for temporal resampling
+  flip:
+    enabled: true
+    prob: 0.5
+
+# =============================================================================
+# EVALUATION CONFIGURATION
+# =============================================================================
+evaluation:
+  k_samples: 20         # Best-of-K evaluation
+  metrics:
+    - "ade"             # Average Displacement Error
+    - "fde"             # Final Displacement Error
+    - "ade_at_time"     # ADE at specific time horizons
+    - "collision_rate"  # Collision rate between agents
+  time_horizons: [1.0, 2.0, 3.0, 4.8]  # Seconds for ade_at_time
+
+# =============================================================================
+# INFERENCE CONFIGURATION
+# =============================================================================
+inference:
+  # Detection + Pose
+  detector:
+    model: "yolov8m-pose"
+    conf_threshold: 0.5
+    iou_threshold: 0.45
+  
+  # Tracking
+  tracker:
+    name: "botsort"     # Options: botsort, bytetrack, ocsort
+    track_buffer: 30
+    match_thresh: 0.8
+  
+  # Prediction
+  prediction:
+    use_pose: true
+    use_velocity: true
+    pred_len: 12
+    num_samples: 1      # Number of trajectory samples (1 for real-time)
+  
+  # Visualization
+  visualization:
+    show_skeleton: true
+    show_trajectory: true
+    show_prediction: true
+    show_uncertainty: true
+    trajectory_color: [0, 255, 0]    # Green for past
+    prediction_color: [255, 0, 0]    # Red for future
+    point_size: 5
+    line_thickness: 2
+
+# =============================================================================
+# HARDWARE CONFIGURATION
+# =============================================================================
+hardware:
+  device: "cuda"        # Options: cuda, cpu
+  gpu_ids: [0]          # GPU IDs to use
+  mixed_precision: true # FP16 training
+  cudnn_benchmark: true
+
+# =============================================================================
+# LOGGING
+# =============================================================================
+logging:
+  use_tensorboard: true
+  use_wandb: false
+  wandb_project: "trajectory-prediction"
+  log_every: 10         # Log every N batches
+  verbose: true

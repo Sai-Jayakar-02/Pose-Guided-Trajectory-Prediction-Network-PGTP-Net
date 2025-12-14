@@ -1,0 +1,202 @@
+# =============================================================================
+# Diffusion Model Configuration
+# =============================================================================
+# Architecture: Motion Indeterminacy Diffusion (MID) - CVPR 2022
+# Purpose: State-of-the-art probabilistic trajectory prediction
+# Key: Denoising diffusion for multi-modal future trajectories
+# Acceleration: DDIM enables 2-step inference (50x speedup)
+# =============================================================================
+
+model:
+  name: "DiffusionTrajectoryPredictor"
+  description: "Diffusion-based trajectory prediction with pose conditioning"
+  
+  # ---------------------------------------------------------------------------
+  # Architecture Overview
+  # ---------------------------------------------------------------------------
+  # Condition Encoder:
+  #   Trajectory [T×2] → LSTM → Condition Features
+  #   Pose [T×J×3]     → Transformer →
+  #
+  # Diffusion Process:
+  #   x_T (noise) → Denoise(x_t, t, condition) → x_{t-1} → ... → x_0 (trajectory)
+  # ---------------------------------------------------------------------------
+  
+  # ---------------------------------------------------------------------------
+  # Condition Encoder (encodes observed trajectory + pose)
+  # ---------------------------------------------------------------------------
+  condition_encoder:
+    # Trajectory encoding
+    trajectory:
+      type: "lstm"
+      input_dim: 2
+      hidden_dim: 128
+      num_layers: 1
+      
+    # Pose encoding (optional)
+    pose:
+      type: "transformer"
+      enabled: true
+      num_joints: 17
+      hidden_dim: 128
+      num_heads: 8
+      num_layers: 2
+      
+    # Velocity encoding
+    velocity:
+      enabled: true
+      hidden_dim: 64
+      
+    # Fusion
+    fusion_dim: 256
+    
+  # ---------------------------------------------------------------------------
+  # Diffusion Configuration
+  # ---------------------------------------------------------------------------
+  diffusion:
+    # Diffusion process parameters
+    num_timesteps: 100              # T in diffusion process
+    beta_schedule: "cosine"         # Options: linear, cosine, quadratic
+    beta_start: 0.0001              # β_1 (for linear schedule)
+    beta_end: 0.02                  # β_T (for linear schedule)
+    
+    # Noise prediction vs sample prediction
+    prediction_type: "epsilon"      # Options: epsilon, sample, v_prediction
+    
+    # Variance type
+    variance_type: "fixed_small"    # Options: fixed_small, fixed_large, learned
+    
+    # Clipping
+    clip_sample: true               # Clip x_0 predictions
+    clip_sample_range: 10.0         # Clipping range (meters)
+    
+  # ---------------------------------------------------------------------------
+  # Denoising Network (U-Net style or Transformer)
+  # ---------------------------------------------------------------------------
+  denoiser:
+    type: "transformer"             # Options: unet, transformer, mlp
+    
+    # Transformer denoiser
+    hidden_dim: 256
+    num_heads: 8
+    num_layers: 4
+    feedforward_dim: 1024
+    dropout: 0.1
+    
+    # Time embedding
+    time_embedding_dim: 128
+    time_embedding_type: "sinusoidal"  # Options: sinusoidal, learned
+    
+    # Condition injection
+    condition_injection: "cross_attention"  # Options: concat, cross_attention, film
+    
+  # ---------------------------------------------------------------------------
+  # Sampling Configuration
+  # ---------------------------------------------------------------------------
+  sampling:
+    # DDPM (full diffusion, slow but accurate)
+    ddpm:
+      enabled: false
+      num_steps: 100
+      
+    # DDIM (accelerated, 50x faster)
+    ddim:
+      enabled: true
+      num_steps: 2                  # 2-step sampling (fastest)
+      eta: 0.0                      # Deterministic (eta=0) or stochastic (eta>0)
+      
+    # DPM-Solver (alternative accelerated sampler)
+    dpm_solver:
+      enabled: false
+      num_steps: 10
+      order: 2                      # 2nd order solver
+      
+    # Number of trajectory samples for diversity
+    num_samples: 20                 # For Best-of-K evaluation
+    
+  # ---------------------------------------------------------------------------
+  # Guidance (optional)
+  # ---------------------------------------------------------------------------
+  guidance:
+    # Classifier-free guidance
+    classifier_free:
+      enabled: false
+      guidance_scale: 1.0           # w in (1+w)*eps_cond - w*eps_uncond
+      
+    # Goal-conditioned guidance
+    goal_guidance:
+      enabled: false
+      goal_weight: 0.5
+      
+  # ---------------------------------------------------------------------------
+  # Output Configuration
+  # ---------------------------------------------------------------------------
+  output:
+    prediction_mode: "displacement"  # Options: displacement, absolute, velocity
+    output_dim: 2                    # (x, y) or (dx, dy)
+    predict_speed: false             # Speed handled implicitly
+    
+# =============================================================================
+# Training Configuration
+# =============================================================================
+training:
+  # Optimizer (following MID paper)
+  optimizer:
+    name: "adam"
+    lr: 0.0001                      # Lower LR for diffusion
+    weight_decay: 0.0
+    betas: [0.9, 0.999]
+    
+  scheduler:
+    name: "cosine"
+    warmup_steps: 1000
+    
+  # Loss
+  loss:
+    type: "mse"                     # MSE on epsilon or sample
+    reduce: "mean"                  # Reduction method
+    
+  # Training settings
+  num_epochs: 500                   # Diffusion needs more epochs
+  batch_size: 256                   # Larger batch for stability
+  grad_clip: 1.0
+  
+  # EMA (Exponential Moving Average)
+  ema:
+    enabled: true
+    decay: 0.9999
+    
+# =============================================================================
+# Inference Configuration
+# =============================================================================
+inference:
+  # Default to DDIM 2-step for real-time
+  sampler: "ddim"
+  num_steps: 2
+  
+  # For higher quality (offline evaluation)
+  high_quality:
+    sampler: "ddpm"
+    num_steps: 100
+    
+  # Latency (approximate)
+  # DDPM 100 steps: ~500ms
+  # DDIM 10 steps: ~50ms
+  # DDIM 2 steps: ~10ms
+  
+# =============================================================================
+# Expected Performance (ETH/UCY, Best-of-20)
+# =============================================================================
+# From MID paper:
+# | Dataset | ADE   | FDE   |
+# |---------|-------|-------|
+# | ETH     | 0.39  | 0.66  |
+# | HOTEL   | 0.13  | 0.22  |
+# | UNIV    | 0.22  | 0.45  |
+# | ZARA1   | 0.17  | 0.30  |
+# | ZARA2   | 0.13  | 0.27  |
+# | AVG     | 0.21  | 0.38  |
+#
+# Note: SOTA but computationally expensive
+# Real-time feasible only with DDIM 2-step acceleration
+# =============================================================================
