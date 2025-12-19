@@ -2,9 +2,9 @@
 <h1> PGTP-Net:<br>  Pose-Guided Trajectory Prediction Network </h1>
 <h3>Sai Jayakar Vanam, Rithvik Shivva, Umar Hassan Makki Mohammad, Priyanka Lakariya
 </h3>
-<h4> <i> ME5550 Mobile Robotics, Northeastern University, Boston </i></h4>
+<h4> <i> EECE5550 Mobile Robotics, Northeastern University, Boston </i></h4>
 
-[[Paper](https://drive.google.com/file/d/1iJI7K4tVCSCr35mgh5IF3osNrfcLU3Rl/view?usp=sharing)]
+[[Paper](https://drive.google.com/file/d/1iJI7K4tVCSCr35mgh5IF3osNrfcLU3Rl/preview)]
 
 <image src="assets/intro_overview.jpg" width="700">
 
